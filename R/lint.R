@@ -389,7 +389,7 @@ checkstyle_output <- function(lints, filename = "lintr_results.xml") {
         line = as.character(x$line_number),
         column = as.character(x$column_number),
         severity = switch(x$type,
-          style = "info",
+          style = "style",
           x$type),
         message = x$message)
     })
