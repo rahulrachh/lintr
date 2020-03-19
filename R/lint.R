@@ -393,7 +393,7 @@ checkstyle_output <- function(lints, filename = "lintr_results.xml") {
           x$type),
         message = x$message,
                           
-		    linter_class = x$linter)
+        linter_class = x$linter)
     })
   })
 
