@@ -391,7 +391,9 @@ checkstyle_output <- function(lints, filename = "lintr_results.xml") {
         severity = switch(x$type,
           style = "info",
           x$type),
-        message = x$message)
+        message = x$message,
+                          
+		    linter_class = x$linter)
     })
   })
 
