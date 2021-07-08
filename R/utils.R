@@ -62,29 +62,34 @@ names2 <- function(x) {
   names(x) %||% rep("", length(x))
 }
 
+linter_auto_name <- function(which = -3L) {
+  call <- sys.call(which = which)
+  nm <- paste(deparse(call, 500L), collapse = " ")
+  regex <- rex(start, one_or_more(alnum %or% "." %or% "_"))
+  if (re_matches(nm, regex)) {
+    match <- re_matches(nm, regex, locations = TRUE)
+    nm <- substr(nm, start = 1L, stop = match[1L, "end"])
+  }
+  nm
+}
+
 auto_names <- function(x) {
   nms <- names2(x)
   missing <- nms == ""
   if (all(!missing)) return(nms)
 
-  deparse2 <- function(x) paste(deparse(x, 500L), collapse = "")
-  defaults <- vapply(x[missing], deparse2, character(1), USE.NAMES = FALSE)
+  default_name <- function(x) {
+    if (inherits(x, "linter")) {
+      attr(x, "name", exact = TRUE)
+    } else {
+      paste(deparse(x, 500L), collapse = " ")
+    }
+  }
+  defaults <- vapply(x[missing], default_name, character(1), USE.NAMES = FALSE)
 
   nms[missing] <- defaults
   nms
 }
-
-quoted_blanks <- function(matches, shift_start = 0, shift_end = 0) {
-  lengths <- nchar(matches)
-  blanks <- vapply(Map(rep.int,
-      rep.int(" ", length(lengths - (shift_start + shift_end))),
-      lengths - (shift_start + shift_end), USE.NAMES = FALSE),
-    paste, "", collapse = "")
-
-  substr(matches, shift_start + 1L, nchar(matches) - shift_end) <- blanks
-  matches
-}
-
 
 # The following functions is from dplyr
 names2 <- function(x) {
@@ -117,8 +122,9 @@ logical_env <- function(x) {
 # from ?chartr
 rot <- function(ch, k = 13) {
   p0 <- function(...) paste(c(...), collapse = "")
-  A <- c(letters, LETTERS, " '")
-  I <- seq_len(k); chartr(p0(A), p0(c(A[-I], A[I])), ch)
+  alphabet <- c(letters, LETTERS, " '")
+  idx <- seq_len(k)
+  chartr(p0(alphabet), p0(c(alphabet[-idx], alphabet[idx])), ch)
 }
 
 trim_ws <- function(x) {
@@ -182,7 +188,7 @@ escape_chars <- c(
 unescape <- function(str, q="`") {
   names(q) <- paste0("\\", q)
   my_escape_chars <- c(escape_chars, q)
-  res <- gregexpr(text=str, pattern=rex(or(names(my_escape_chars))))
+  res <- gregexpr(text = str, pattern = rex(or(names(my_escape_chars))))
   all_matches <- regmatches(str, res)
   regmatches(str, res) <- lapply(
     all_matches,
@@ -194,16 +200,19 @@ unescape <- function(str, q="`") {
 }
 
 # convert an XML match into a Lint
-xml_nodes_to_lint <- function(xml, source_file, message, linter,
-                              type = c("style", "warning", "error")) {
+xml_nodes_to_lint <- function(xml, source_file, message,
+                              type = c("style", "warning", "error"),
+                              offset = 0L, global = FALSE) {
   type <- match.arg(type, c("style", "warning", "error"))
   line1 <- xml2::xml_attr(xml, "line1")[1]
-  col1 <- as.integer(xml2::xml_attr(xml, "col1"))
+  col1 <- as.integer(xml2::xml_attr(xml, "col1")) + offset
+
+  line_elt <- if (global) "file_lines" else "lines"
 
   if (xml2::xml_attr(xml, "line2") == line1) {
-    col2 <- as.integer(xml2::xml_attr(xml, "col2"))
+    col2 <- as.integer(xml2::xml_attr(xml, "col2")) + offset
   } else {
-    col2 <- nchar(source_file$lines[line1])
+    col2 <- unname(nchar(source_file[[line_elt]][line1]))
   }
   return(Lint(
     filename = source_file$filename,
@@ -211,8 +220,57 @@ xml_nodes_to_lint <- function(xml, source_file, message, linter,
     column_number = as.integer(col1),
     type = type,
     message = message,
-    line = source_file$lines[line1],
-    ranges = list(c(col1, col2)),
-    linter = linter
+    line = source_file[[line_elt]][line1],
+    ranges = list(c(col1 - offset, col2))
   ))
 }
+
+# interface to work like options() or setwd() -- returns the old value for convenience
+set_lang <- function(new_lang) {
+  old_lang <- Sys.getenv("LANGUAGE", unset = NA)
+  Sys.setenv(LANGUAGE = new_lang)
+  old_lang
+}
+# handle the logic of either unsetting if it was previously unset, or resetting
+reset_lang <- function(old_lang) {
+  if (is.na(old_lang)) Sys.unsetenv("LANGUAGE") else Sys.setenv(LANGUAGE = old_lang)
+}
+
+#' Create a \code{linter} closure
+#' @param fun A function that takes a source file and returns \code{lint} objects.
+#' @param name Default name of the Linter.
+#' Lints produced by the linter will be labelled with \code{name} by default.
+#' @return The same function with its class set to 'linter'.
+#' @export
+Linter <- function(fun, name = linter_auto_name()) { # nolint: object_name_linter.
+  if (!is.function(fun) || length(formals(args(fun))) != 1L) {
+    stop("`fun` must be a function taking exactly one argument.", call. = FALSE)
+  }
+  force(name)
+  structure(fun, class = "linter", name = name)
+}
+
+read_lines <- function(file, encoding = settings$encoding, ...) {
+  terminal_newline <- TRUE
+  lines <- withCallingHandlers({
+    readLines(file, warn = TRUE, ...)
+  },
+  warning = function(w) {
+    if (grepl("incomplete final line found on", w$message, fixed = TRUE)) {
+      terminal_newline <<- FALSE
+      invokeRestart("muffleWarning")
+    }
+  })
+  lines_conv <- iconv(lines, from = encoding, to = "UTF-8")
+  lines[!is.na(lines_conv)] <- lines_conv[!is.na(lines_conv)]
+  Encoding(lines) <- "UTF-8"
+  attr(lines, "terminal_newline") <- terminal_newline
+  lines
+}
+
+# nocov start
+# support for usethis::use_release_issue(). Make sure to use devtools::load_all() beforehand!
+release_bullets <- function() {
+  "Make sure README.md lists all available linters"
+}
+# nocov end

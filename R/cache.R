@@ -28,31 +28,25 @@ get_cache_file_path <- function(file, path) {
 }
 
 load_cache <- function(file, path = NULL) {
-  if (is.null(path)) {
-    # Only retrieve settings if `path` isn't specified.
-    # Otherwise, other settings may inadvertently be loaded, such as exclusions.
-    read_settings(file)
-    path <- settings$cache_directory
-  }
-
   env <- new.env(parent = emptyenv())
 
   file <- get_cache_file_path(file, path)
   if (file.exists(file)) {
-    load(file = file, envir = env)
+    tryCatch(
+      load(file = file, envir = env),
+      error = function(e) {
+        warning(
+          "Could not load cache file '", file, "':\n",
+          conditionMessage(e)
+        )
+      }
+    )
   } # else nothing to do for source file that has no cache
 
   env
 }
 
 save_cache <- function(cache, file, path = NULL) {
-  if (is.null(path)) {
-    # Only retrieve settings if `path` isn't specified.
-    # Otherwise, other settings may inadvertently be loaded, such as exclusions.
-    read_settings(file)
-    path <- settings$cache_directory
-  }
-
   if (!file.exists(path)) {
     dir.create(path, recursive = TRUE)
   }
@@ -94,10 +88,18 @@ retrieve_lint <- function(cache, expr, linter, lines) {
     mode = "list",
     inherits = FALSE
   )
-  lints[] <- lapply(lints, function(lint) {
-    lint$line_number <- find_new_line(lint$line_number, unname(lint$line), lines)
-    lint
-  })
+  for (i in seq_along(lints)) {
+    new_line_number <- find_new_line(
+      lints[[i]]$line_number,
+      unname(lints[[i]]$line),
+      lines
+    )
+    if (is.na(new_line_number)) {
+      return(NULL)
+    } else {
+      lints[[i]]$line_number <- new_line_number
+    }
+  }
   cache_lint(cache, expr, linter, lints)
   lints
 }

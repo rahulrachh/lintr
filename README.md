@@ -24,15 +24,11 @@ If you need a bit automatic help for re-styling your code, have a look at [the `
 ## Available linters ##
 
 * `Syntax errors`: reported by [parse](https://www.rdocumentation.org/packages/base/versions/3.4.0/topics/parse).
-* `object_usage_linter`: check that closures have the proper usage using
-  [codetools::checkUsage()](https://www.rdocumentation.org/packages/codetools/versions/0.2-15/topics/checkUsage).  Note this runs
-  [base::eval()](https://www.rdocumentation.org/packages/base/versions/3.4.0/topics/eval) on the code, so do not use with untrusted code.
+* `Misencoded files`: check that files are read using the correct encoding.
 * `absolute_path_linter`: check that no absolute paths are used (e.g. "/var", "C:\\System", "~/docs").
-* `nonportable_path_linter`: check that file.path() is used to construct safe and portable paths.
-* `pipe_continuation_linter`: Check that each step in a pipeline is on a new
-  line, or the entire pipe fits on one line.
 * `assignment_linter`: check that `<-` is always used for assignment
 * `assignment_spaces_linter`: checks that assignments only have one space before and after
+* `backport_linter`: checks for usage of unavailable functions. Not reliable for testing r-devel dependencies.
 * `camel_case_linter`: check that objects are not in camelCase.
 * `closed_curly_linter`: check that closed curly braces should always be on their
   own line unless they are followed by an else.
@@ -54,13 +50,20 @@ If you need a bit automatic help for re-styling your code, have a look at [the `
   `library()`, `require()`, `loadNamespace()`, and `requireNamespace()` are missing.
 * `namespace_linter`: check if there are missing packages and symbols in namespace calls with `::` and `:::`.
 * `no_tab_linter`: check that only spaces are used, never tabs.
+* `nonportable_path_linter`: check that file.path() is used to construct safe and portable paths.
 * `object_length_linter`: check that function and variable names are not more than `length` characters.
 * `object_name_linter`: check that object names conform to a single naming
   style, e.g. CamelCase, camelCase, snake_case, SNAKE_CASE, dotted.case,
   lowercase, or UPPERCASE.
+* `object_usage_linter`: check that closures have the proper usage using
+  [codetools::checkUsage()](https://rdrr.io/cran/codetools/man/checkUsage.html).  Note this runs
+  [base::eval()](https://rdrr.io/r/base/eval.html) on the code, so do not use with untrusted code.
 * `open_curly_linter`: check that opening curly braces are never on their own
   line and are always followed by a newline.
 * `paren_brace_linter`: check that there is a space between right parenthesis and an opening curly brace.
+* `pipe_call_linter`: force explicit calls in magrittr pipes.
+* `pipe_continuation_linter`: Check that each step in a pipeline is on a new
+  line, or the entire pipe fits on one line.
 * `semicolon_terminator_linter`: check that no semicolons terminate statements.
 * `seq_linter`: check for `1:length(...)`, `1:nrow(...)`, `1:ncol(...)`,
   `1:NROW(...)`, and `1:NCOL(...)` expressions. These often cause bugs when the
@@ -87,6 +90,18 @@ If you need a bit automatic help for re-styling your code, have a look at [the `
 ### References ###
 Most of the default linters are based on [Hadley Wickham's The tidyverse style guide](https://style.tidyverse.org/).
 
+## Running `lintr` ##
+
+There are several ways to use `lintr`.
+
+When inside an R session, `lintr` can analyse all the R code in
+a file (using `lintr::lint(file_path)`), package (`lintr::lint_package(pkg_path)`) or directory (`lintr::lint_dir(dir_path)`).
+
+Similarly, `lintr` can be run from the command line using
+`Rscript -e "lintr::lint_package(commandArgs(trailingOnly = TRUE))" pkg_path` (linux/mac; for windows use Rscript.exe).
+
+Advanced users may run `lintr` during [continuous-integration](#continuous-integration), or [within their IDE or text editor](#editors-setup).
+
 ## Project Configuration ##
 
 Lintr supports per-project configuration of the following fields.
@@ -98,15 +113,29 @@ The config file (default file name: `.lintr`) is in [Debian Control Field Format
 - `exclude` - a regex pattern for lines to exclude from linting.  Default is "# nolint"
 - `exclude_start` - a regex pattern to start exclusion range. Default is "# nolint start"
 - `exclude_end` - a regex pattern to end exclusion range. Default is "# nolint end"
+- `encoding` - the encoding used for source files. Default inferred from .Rproj or DESCRIPTION files, fallback to UTF-8
 
-An example file that uses 120 character line lengths, excludes a couple of
-files and sets different default exclude regexs follows.
+
+### .lintr File Example
+
+Below is an example .lintr file that uses:
+
+- 120 character line lengths
+- Excludes a couple of files
+- Disables a specific linter, and; 
+- Sets different default exclude regexes
+- Specifies the file encoding to be ISO-8859-1 (Latin 1)
+
 ```
-linters: with_defaults(line_length_linter(120))
+linters: with_defaults(
+  line_length_linter(120), 
+  commented_code_linter = NULL
+  )
 exclusions: list("inst/doc/creating_linters.R" = 1, "inst/example/bad.R", "tests/testthat/exclusions-test")
 exclude: "# Exclude Linting"
 exclude_start: "# Begin Exclude Linting"
 exclude_end: "# End Exclude Linting"
+encoding: "ISO-8859-1"
 ```
 
 With the following command, you can create a configuration file for `lintr` that ignores all linters that show at least one error:
@@ -154,7 +183,32 @@ The resulting configuration will contain each currently failing linter and the c
 If you are developing a package, you can add `^\.lintr$` to your `.Rbuildignore` file using `usethis::use_build_ignore(".lintr")`.
 
 ## Continuous integration ##
-If you want to run `lintr` on [Travis-CI](https://travis-ci.org) in order to check that commits and pull requests don't deteriorate code style, you will need
+You can configure `lintr` to run as part of continuous integration (either for a package or a general project containing R files) in order to automatically check that commits and pull requests do not deteriorate code style. 
+
+### For packages
+
+#### GitHub Actions ###
+
+If your package is on GitHub, the easiest way to do this is with GitHub Actions. 
+The workflow configuration files use YAML syntax. The `usethis` package has some 
+great functionality, that can help you with workflow files. The most straightforward 
+way to add a `lint` workflow to your package is to use the [r-lib/actions](https://github.com/r-lib/actions/tree/master/examples)'s `lint` 
+example. To do this with `usethis`, you need to call 
+
+```r
+usethis::use_github_action("lint")
+```
+
+This will create a workflow file called `lint.yaml` and place it in the correct 
+location, namely in the `.github/workflows` directory of your repository. This file configures all the steps required to run `lintr::lint_package()` on your package.  
+
+[lintr-bot](https://github.com/lintr-bot) will then add comments to the commit or 
+pull request with the lints found and they will also be printed as [annotations](https://docs.github.com/en/free-pro-team@latest/github/collaborating-with-issues-and-pull-requests/about-status-checks#types-of-status-checks-on-github) along side the status check on GitHub.  If you want to disable the commenting you can
+set the environment variable `LINTR_COMMENT_BOT=false`.
+
+#### Travis CI ###
+
+If you want to run `lintr` on [Travis-CI](https://travis-ci.org), you will need
 to have Travis install the package first.  This can be done by adding the
 following line to your `.travis.yml`
 
@@ -165,12 +219,12 @@ r_github_packages:
 
 We recommend running `lintr::lint_package()` as an [after_success step in your build process](#non-failing-lints)]
 
-[lintr-bot](https://github.com/lintr-bot) will then add comments
-to the commit or pull request with the lints found and they will also be
+Just like with GitHub Actions, [lintr-bot](https://github.com/lintr-bot) will then 
+add comments to the commit or pull request with the lints found and they will also be
 printed on Travis-CI.  If you want to disable the commenting you can
 set the environment variable `LINTR_COMMENT_BOT=false`.
 
-### Non-failing Lints ###
+##### Non-failing Lints ####
 ```yaml
 after_success:
   - R CMD INSTALL $PKG_TARBALL
@@ -178,6 +232,19 @@ after_success:
 ```
 
 Live example of a package using this setup: [`hibpwned`](https://github.com/lockedata/HIBPwned/blob/master/.travis.yml), [lintr-bot commenting on a PR](https://github.com/lockedata/HIBPwned/pull/30).
+
+### For projects ###
+
+You are not limited you using `lintr` for packages only, you can use it in combination with continuous integration for any other project. 
+
+#### GitHub Actions ####
+
+If your project is on GitHub, you could take advantage of GitHub Actions and the `usethis` functionality. [r-lib/actions](https://github.com/r-lib/actions/tree/master/examples) includes a `lint-project` example, which you can use by calling:
+
+```r
+usethis::use_github_action("lint-project")
+```
+
 
 ## Installation of development version ##
 To install the latest development version of lintr from GitHub
@@ -213,7 +280,7 @@ lintr has [built-in integration](http://www.flycheck.org/en/latest/languages.htm
 
 #### Installation ####
 lintr is fully integrated into flycheck when using [ESS](http://ess.r-project.org/).  See the
-installalation documentation for those packages for more information.
+installation documentation for those packages for more information.
 
 #### Configuration ####
 You can also configure what linters are used. e.g. using a different line length cutoff.
@@ -221,7 +288,7 @@ You can also configure what linters are used. e.g. using a different line length
 
 ### Vim - syntastic
 lintr can be integrated with
-[syntastic](https://github.com/scrooloose/syntastic) for on the fly linting.
+[syntastic](https://github.com/vim-syntastic/syntastic) for on the fly linting.
 
 ![Vim Example](http://i.imgur.com/fR6Os5M.gif "Vim Example")
 
@@ -264,14 +331,14 @@ Note that configuration through `.lintr` files are not supported.
 
 ### Sublime Text 3 ###
 lintr can be integrated with
-[Sublime Linter](https://github.com/SublimeLinter/SublimeLinter3) for on the fly linting.
+[Sublime Linter](https://github.com/SublimeLinter/SublimeLinter) for on the fly linting.
 
 ![Sublime Example](http://i.imgur.com/3pua2yz.gif "Sublime Example")
 
 #### Installation ####
 Simply install `sublimeLinter-contrib-lintr` using [Package Control](https://packagecontrol.io/).
 
-For more information see [Sublime Linter Docs](http://sublimelinter.readthedocs.org/en/latest/installation.html#installing-via-pc)
+For more information see [Sublime Linter Docs](http://sublimelinter.readthedocs.io/en/latest/installation.html#installing-via-pc)
 
 #### Configuration ####
 You can also configure what linters are used. e.g. disabling the assignment linter and using a different line length cutoff.
@@ -288,7 +355,7 @@ In the SublimeLinter User Settings
 
 ### Atom ###
 lintr can be integrated with
-[Linter](https://github.com/atom-community/linter) for on the fly linting.
+[Linter](https://github.com/steelbrain/linter) for on the fly linting.
 
 ![Atom Example](http://i.imgur.com/E1Isi4T.png "Atom Example")
 

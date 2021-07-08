@@ -1,13 +1,11 @@
-context("Integration tests for `lint_package`")
-
 # When called from inside a package:
-# lint_package(".")
+# lint_package(".") # nolint
 # .. should give the same results as when called from outside the package
 # with:
-# lint_package(path_to_package)
+# lint_package(path_to_package) # nolint
 
 # Template packages for use in testing are stored in
-# `tests/testthat/dummy_packages/<pkgName>`
+# tests/testthat/dummy_packages/<pkgName>
 # These packages should not have a .lintr file:  Hardcoding a .lintr in a
 # dummy package throws problems during `R CMD check` (they are flagged as
 # hidden files, but can't be added to RBuildIgnore since they should be
@@ -28,15 +26,15 @@ test_that(
   )
   read_settings(NULL)
   lints_from_outside <- lint_package(
-    pkg_path, linters = list(assignment_linter), parse_settings = FALSE
+    pkg_path, linters = list(assignment_linter()), parse_settings = FALSE
   )
   lints_from_pkg_root <- withr::with_dir(
     pkg_path,
-    lint_package(".", linters = list(assignment_linter), parse_settings = FALSE)
+    lint_package(".", linters = list(assignment_linter()), parse_settings = FALSE)
   )
   lints_from_a_subdir <- withr::with_dir(
     file.path(pkg_path, "R"),
-    lint_package("..", linters = list(assignment_linter), parse_settings = FALSE)
+    lint_package("..", linters = list(assignment_linter()), parse_settings = FALSE)
   )
 
   expect_equal(
@@ -82,15 +80,15 @@ test_that(
 
   expected_lines <- c("mno = 789")
   lints_from_outside <- lint_package(
-    pkg_path, linters = list(assignment_linter)
+    pkg_path, linters = list(assignment_linter())
   )
   lints_from_pkg_root <- withr::with_dir(
     pkg_path,
-    lint_package(".", linters = list(assignment_linter))
+    lint_package(".", linters = list(assignment_linter()))
   )
   lints_from_a_subdir <- withr::with_dir(
     file.path(pkg_path, "R"),
-    lint_package("..", linters = list(assignment_linter))
+    lint_package("..", linters = list(assignment_linter()))
   )
 
   expect_equal(
@@ -111,5 +109,23 @@ test_that(
       "lint_package() finds the same lints from a subdir as from outside a pkg",
       "(.lintr config present)"
     )
+  )
+})
+
+test_that("lint_package returns early if no package is found", {
+
+  temp_pkg <- tempfile("dir")
+  dir.create(temp_pkg)
+  on.exit(unlink(temp_pkg, recursive = TRUE))
+
+  expect_warning(l <- lint_package(temp_pkg), "Didn't find any R package", fixed = TRUE)
+  expect_null(l)
+
+  # ignore a folder named DESCRIPTION, #702
+  file.copy(file.path("dummy_packages", "desc_dir_pkg"), temp_pkg, recursive = TRUE)
+
+  expect_warning(
+    lint_package(file.path(temp_pkg, "desc_dir_pkg", "DESCRIPTION", "R")),
+    "Didn't find any R package", fixed = TRUE
   )
 })

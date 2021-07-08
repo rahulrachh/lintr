@@ -23,20 +23,40 @@ object_name_linter <- function(styles = c("snake_case", "symbols")) {
     "Variable and function name style should be ", .or_string(styles), "."
   )
 
-  function(source_file) {
+  Linter(function(source_file) {
     if (is.null(source_file$full_xml_parsed_content)) return(list())
 
     xml <- source_file$full_xml_parsed_content
 
     xpath <- paste0(
-      # Left hand assignments
-      "//expr[SYMBOL or STR_CONST][following-sibling::LEFT_ASSIGN or following-sibling::EQ_ASSIGN]/*",
+      # assignments
+      "//SYMBOL[",
+      " not(preceding-sibling::OP-DOLLAR)",
+      " and ancestor::expr[",
+      "  following-sibling::LEFT_ASSIGN",
+      "  or preceding-sibling::RIGHT_ASSIGN",
+      "  or following-sibling::EQ_ASSIGN",
+      " ]",
+      " and not(ancestor::expr[",
+      "  preceding-sibling::OP-LEFT-BRACKET",
+      "  or preceding-sibling::LBB",
+      " ])",
+      "]",
 
-      # Or
       " | ",
 
-      # Right hand assignments
-      "//expr[SYMBOL or STR_CONST][preceding-sibling::RIGHT_ASSIGN]/*",
+      "//STR_CONST[",
+      " not(preceding-sibling::OP-DOLLAR)",
+      " and ancestor::expr[",
+      "  following-sibling::LEFT_ASSIGN",
+      "  or preceding-sibling::RIGHT_ASSIGN",
+      "  or following-sibling::EQ_ASSIGN",
+      " ]",
+      " and not(ancestor::expr[",
+      "  preceding-sibling::OP-LEFT-BRACKET",
+      "  or preceding-sibling::LBB",
+      " ])",
+      "]",
 
       # Or
       " | ",
@@ -49,13 +69,15 @@ object_name_linter <- function(styles = c("snake_case", "symbols")) {
 
     # Retrieve assigned name
     nms <- strip_names(
-      as.character(xml2::xml_find_first(assignments, "./text()")))
+      xml2::xml_text(assignments)
+    )
 
     generics <- strip_names(c(
       declared_s3_generics(xml),
-      namespace_imports()$fun,
-      names(.knownS3Generics),
-      .S3PrimitiveGenerics, ls(baseenv())))
+      imported_s3_generics(namespace_imports(find_package(source_file$filename)))$fun,
+      .base_s3_generics
+    ))
+    generics <- unique(generics[nzchar(generics)])
 
     style_matches <- lapply(styles, function(style) {
       check_style(nms, style, generics)
@@ -67,10 +89,9 @@ object_name_linter <- function(styles = c("snake_case", "symbols")) {
       assignments[!matches_a_style],
       object_lint2,
       source_file,
-      lint_msg,
-      "object_name_linter"
+      lint_msg
     )
-  }
+  })
 }
 
 check_style <- function(nms, style, generics = character()) {
@@ -82,7 +103,7 @@ check_style <- function(nms, style, generics = character()) {
   if (any(!conforming)) {
     possible_s3 <- re_matches(
       nms[!conforming],
-      rex(capture(name = "generic", something), ".", capture(name = "method", something))
+      rex(start, capture(name = "generic", or(generics)), ".", capture(name = "method", something), end)
     )
     if (any(!is.na(possible_s3))) {
       has_generic <- possible_s3$generic %in% generics
@@ -104,7 +125,7 @@ strip_names <- function(x) {
   x
 }
 
-object_lint2 <- function(expr, source_file, message, type) {
+object_lint2 <- function(expr, source_file, message) {
   symbol <- xml2::as_list(expr)
   Lint(
     filename = source_file$filename,
@@ -114,15 +135,15 @@ object_lint2 <- function(expr, source_file, message, type) {
     message = message,
     line = source_file$file_lines[as.numeric(symbol@line1)],
     ranges = list(as.numeric(c(symbol@col1, symbol@col2))),
-    linter = type
-    )
+  )
 }
 
-make_object_linter <- function(fun) {
-  function(source_file) {
+make_object_linter <- function(fun, name = linter_auto_name()) {
+  force(name)
+  Linter(function(source_file) {
 
     token_nums <- ids_with_token(
-      source_file, rex(start, "SYMBOL" %if_next_isnt% "_SUB"), fun=re_matches
+      source_file, rex(start, "SYMBOL" %if_next_isnt% "_SUB"), fun = re_matches
     )
     if (length(token_nums) == 0) {
       return(list())
@@ -146,7 +167,7 @@ make_object_linter <- function(fun) {
         }
       }
     )
-  }
+  }, name = name)
 }
 
 known_generic_regex <- rex(
@@ -173,15 +194,15 @@ is_declared_here <- function(token, source_file) {
   filt <- filter_out_token_type(source_file[["parsed_content"]], "expr")
   assign_regex <- rex(start, or("EQ_ASSIGN", "LEFT_ASSIGN"), end)
   l <- which(filt[, "id"] == token[["id"]])
-  if ( (l + 1L <= dim(filt)[[1L]] && re_matches(filt[l + 1L, "token"], assign_regex)) ||
-       (l >= 2L  &&  filt[l - 1L, "token"] == "RIGHT_ASSIGN") ) {
+  if ((l + 1L <= dim(filt)[[1L]] && re_matches(filt[l + 1L, "token"], assign_regex)) ||
+       (l >= 2L  &&  filt[l - 1L, "token"] == "RIGHT_ASSIGN")) {
     # assigned variable or function parameter
     TRUE
   } else {
     sibling_ids <- siblings(source_file[["parsed_content"]], token[["id"]], 1L)
     if (token[["text"]] != "..." &&
         length(sibling_ids) &&
-        with_id(source_file, sibling_ids[[1L]])[["text"]] == "function" ) {
+        with_id(source_file, sibling_ids[[1L]])[["text"]] == "function") {
       # parameter in function definition
       TRUE
     } else {
@@ -265,7 +286,7 @@ is_special_function <- function(x) {
   x %in% special_funs
 }
 
-object_lint <- function(source_file, token, message, type) {
+object_lint <- function(source_file, token, message) {
   Lint(
     filename = source_file$filename,
     line_number = token$line1,
@@ -273,8 +294,7 @@ object_lint <- function(source_file, token, message, type) {
     type = "style",
     message = message,
     line = source_file$lines[as.character(token$line1)],
-    ranges = list(c(token$col1, token$col2)),
-    linter = type
+    ranges = list(c(token$col1, token$col2))
   )
 }
 
@@ -283,7 +303,7 @@ loweralnum <- rex(one_of(lower, digit))
 upperalnum <- rex(one_of(upper, digit))
 
 style_regexes <- list(
-  "symbols"     = rex(start, maybe("."), zero_or_more(none_of(alnum)), end),
+  "symbols"     = rex(start, zero_or_more(none_of(alnum)), end),
   "CamelCase"   = rex(start, maybe("."), upper, zero_or_more(alnum), end),
   "camelCase"   = rex(start, maybe("."), lower, zero_or_more(alnum), end),
   "snake_case"  = rex(start, maybe("."), some_of(lower, digit), any_of("_", lower, digit), end),
@@ -303,8 +323,7 @@ object_length_linter <- function(length = 30L) {
         object_lint(
           source_file,
           token,
-          paste0("Variable and function names should not be longer than ", length, " characters."),
-          "object_length_linter"
+          paste0("Variable and function names should not be longer than ", length, " characters.")
         )
       }
   })

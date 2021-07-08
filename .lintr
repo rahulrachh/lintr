@@ -1,17 +1,13 @@
 linters: with_defaults( # The following TODOs are part of an effort to have {lintr} lint-free (#584)
    line_length_linter = line_length_linter(120),
-   infix_spaces_linter = NULL, # TODO enable (#594)
-   cyclocomp_linter = cyclocomp_linter(29), # TODO reduce to 15
-   object_name_linter = NULL, # TODO enable (#597)
-   spaces_inside_linter = NULL, # TODO enable (#598)
-   equals_na_linter = NULL, # TODO enable (#601)
-   paren_brace_linter = NULL # TODO enable (#603)
+   cyclocomp_linter = cyclocomp_linter(28) # TODO reduce to 15
  )
 exclusions: list(
   "inst/doc/creating_linters.R" = 1,
   "inst/example/bad.R",
-  "tests", # TODO remove this
+  "tests/testthat/default_linter_testcode.R",
   "tests/testthat/dummy_packages",
+  "tests/testthat/dummy_projects",
   "tests/testthat/exclusions-test",
   "tests/testthat/knitr_formats",
   "tests/testthat/knitr_malformed"

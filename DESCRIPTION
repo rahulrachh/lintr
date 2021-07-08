@@ -4,7 +4,10 @@ Version: 2.0.1.9000
 Authors@R: c(
     person("Jim", "Hester", email = "james.f.hester@gmail.com", role = c("aut", "cre")),
     person("Florent", "Angly", role = "aut"),
-    person("Russ", "Hyde", role = "aut")
+    person("Russ", "Hyde", role = "aut"),
+    person("Michael", "Chirico", role = "aut"),
+    person("Kun", "Ren", role = "aut"),
+    person("Alexander", "Rosenstock", role = "aut")
     )
 URL: https://github.com/jimhester/lintr
 BugReports: https://github.com/jimhester/lintr/issues
@@ -33,7 +36,6 @@ Suggests:
     mockery,
     withr
 License: MIT + file LICENSE
-LazyData: true
 Encoding: UTF-8
 VignetteBuilder: knitr
 RoxygenNote: 7.1.1
@@ -45,6 +47,7 @@ Collate:
     'addins.R'
     'assignment_linter.R'
     'assignment_spaces_linter.R'
+    'backport_linter.R'
     'cache.R'
     'closed_curly_linter.R'
     'commas_linter.R'
@@ -54,7 +57,7 @@ Collate:
     'declared_functions.R'
     'object_name_linters.R'
     'deprecated.R'
-    'equals_na_lintr.R'
+    'equals_na_linter.R'
     'exclude.R'
     'expect_lint.R'
     'extract.R'
@@ -66,6 +69,7 @@ Collate:
     'infix_spaces_linter.R'
     'line_length_linter.R'
     'lint.R'
+    'make_linter_from_regex.R'
     'methods.R'
     'missing_argument_linter.R'
     'missing_package_linter.R'
@@ -76,6 +80,7 @@ Collate:
     'open_curly_linter.R'
     'paren_brace_linter.R'
     'path_linters.R'
+    'pipe_call_linter.R'
     'pipe_continuation_linter.R'
     'semicolon_terminator_linter.R'
     'seq_linter.R'

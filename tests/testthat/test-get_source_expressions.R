@@ -1,12 +1,14 @@
-context("get_source_expression")
-
-
 with_content_to_parse <- function(content, code) {
   f <- tempfile()
+  con <- file(f, open = "w", encoding = "UTF-8")
   on.exit(unlink(f))
-  writeLines(content, f)
-  pc <- lapply(get_source_expressions(f)[["expressions"]], `[[`, "parsed_content")
-  eval(substitute(code))
+  writeLines(content, con)
+  close(con)
+  source_expressions <- get_source_expressions(f)
+  content_env <- new.env()
+  content_env$pc <- lapply(source_expressions[["expressions"]], `[[`, "parsed_content")
+  content_env$error <- source_expressions$error
+  eval(substitute(code), envir = content_env)
 }
 
 
@@ -63,14 +65,60 @@ test_that("tab positions have been corrected", {
 
 test_that("Terminal newlines are detected correctly", {
   writeLines("lm(y ~ x)", tmp <- tempfile())
-  on.exit(unlink(tmp), add=TRUE)
+  on.exit(unlink(tmp), add = TRUE)
   writeBin(
     # strip the last (two) element(s) (\r\n or \n)
     head(readBin(tmp, raw(), file.size(tmp)), if (.Platform$OS.type == "windows") -2L else -1L),
     tmp2 <- tempfile()
   )
-  on.exit(unlink(tmp2), add=TRUE)
+  on.exit(unlink(tmp2), add = TRUE)
 
   expect_true(get_source_expressions(tmp)$expressions[[2L]]$terminal_newline)
   expect_false(get_source_expressions(tmp2)$expressions[[2L]]$terminal_newline)
+})
+
+test_that("Multi-byte characters correct columns", {
+  with_content_to_parse("`\U2020` <- 1", {
+    # fix_column_numbers corrects the start of <-
+    expect_equal(pc[[1L]]$col1[4L], pc[[1L]]$col1[2L] + 4L)
+  })
+})
+
+test_that("Multi-byte character truncated by parser is ignored", {
+  # \U2013 is the Unicode character 'en dash', which is
+  # almost identical to a minus sign in monospaced fonts.
+  with_content_to_parse("y <- x \U2013 42", {
+    expect_equal(error$message, "unexpected input")
+    expect_equal(error$column_number, 8L)
+  })
+})
+
+test_that("Can read non UTF-8 file", {
+  file <- "dummy_projects/project/cp1252.R"
+  read_settings(file)
+  expect_null(get_source_expressions(file)$error)
+})
+
+test_that("Warns if encoding is misspecified", {
+  file <- "dummy_projects/project/cp1252.R"
+  read_settings(NULL)
+  the_lint <- get_source_expressions(file)$error
+  expect_s3_class(the_lint, "lint")
+
+  msg <- "Invalid multibyte character in parser. Is the encoding correct?"
+  if (.Platform$OS.type == "windows") {
+    # Windows parser throws a different error message because the source code is converted to native encoding
+    # This results in line 4 becoming <fc> <- 42 before the parser sees it.
+    msg <- "unexpected '<'"
+  }
+
+  expect_equal(the_lint$message, msg)
+  expect_equal(the_lint$line_number, 4L)
+
+  file <- "dummy_projects/project/cp1252_parseable.R"
+  read_settings(NULL)
+  the_lint <- get_source_expressions(file)$error
+  expect_s3_class(the_lint, "lint")
+  expect_equal(the_lint$message, "Invalid multibyte string. Is the encoding correct?")
+  expect_equal(the_lint$line_number, 1L)
 })

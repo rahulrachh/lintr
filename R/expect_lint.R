@@ -36,22 +36,24 @@
 #' expect_lint(
 #'   "a\n\n",
 #'   list(list(message="superfluous", line_number=2), list(message="superfluous", line_number=3)),
-#'   trailing_blank_lines_linter)
+#'   trailing_blank_lines_linter()
+#' )
 #' @export
 expect_lint <- function(content, checks, ..., file = NULL, language = "en") {
-  oldlang <- Sys.getenv("LANGUAGE")
-  Sys.setenv(LANGUAGE = language)
-  on.exit(Sys.setenv(LANGUAGE = oldlang))
+  old_lang <- set_lang(language)
+  on.exit(reset_lang(old_lang))
 
   if (is.null(file)) {
     file <- tempfile()
+    con <- base::file(file, encoding = "UTF-8")
     on.exit(unlink(file), add = TRUE)
-    writeLines(content, con = file, sep = "\n")
+    writeLines(content, con = con, sep = "\n")
+    close(con)
   }
 
   lints <- lint(file, ...)
   n_lints <- length(lints)
-  lint_str <- if (n_lints) paste0(c("", lints), collapse="\n") else ""
+  lint_str <- if (n_lints) paste0(c("", lints), collapse = "\n") else ""
 
   wrong_number_fmt  <- "got %d lints instead of %d%s"
   if (is.null(checks)) {
@@ -70,8 +72,9 @@ expect_lint <- function(content, checks, ..., file = NULL, language = "en") {
   }
 
   local({
-    itr <- 0L #nolint
-    lint_fields <- names(formals(Lint))
+    itr <- 0L
+    # keep 'linter' as a field even if we remove the deprecated argument from Lint() in the future
+    lint_fields <- unique(c(names(formals(Lint)), "linter"))
     Map(function(lint, check) {
       itr <<- itr + 1L
       lapply(names(check), function(field) {

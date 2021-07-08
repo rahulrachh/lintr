@@ -79,7 +79,7 @@ print.lints <- function(x, ...) {
     }
 
     if (isTRUE(settings$error_on_lint)) {
-      quit("no", 31, FALSE)
+      quit("no", 31, FALSE) # nocov
     }
   } else if (rstudio_source_markers) {
     # Empty lints: clear RStudio source markers
@@ -134,7 +134,7 @@ split.lints <- function(x, f=NULL, ...) {
 }
 
 #' @export
-as.data.frame.lints <- function(x, row.names = NULL, optional = FALSE, ...) {
+as.data.frame.lints <- function(x, row.names = NULL, optional = FALSE, ...) { # nolint: object_name_linter. (row.names)
   data.frame(filename = vapply(x, `[[`, character(1), "filename"),
              line_number = vapply(x, `[[`, numeric(1), "line_number"),
              column_number = vapply(x, `[[`, numeric(1), "column_number"),

@@ -1,11 +1,9 @@
-context("Integration tests for lint('some_file')")
-
 # The lints for a given file should be the same regardless of the working
 # directory
 
 # Helper function: run assignment_linter on a given file
 lint_assignments <- function(filename) {
-  lint(filename, linters = list(assignment_linter))
+  lint(filename, linters = list(assignment_linter()))
 }
 
 test_that("lint() results do not depend on the working directory", {
@@ -88,7 +86,7 @@ test_that("lint() results do not depend on the position of the .lintr", {
     )
   )
 
-  lints_with_config_in_source_dir <- withr::with_dir(
+  lints_with_config_in_r_dir <- withr::with_dir(
     pkg_path,
     lint_with_config(
       config_path = "R/.lintr",
@@ -102,10 +100,107 @@ test_that("lint() results do not depend on the position of the .lintr", {
   )
   expect_equal(
     as.data.frame(lints_with_config_at_pkg_root),
-    as.data.frame(lints_with_config_in_source_dir),
+    as.data.frame(lints_with_config_in_r_dir),
     info = paste(
       "lints for a source file should be independent of whether the .lintr",
       "file is in the project-root or the source-file-directory"
     )
+  )
+})
+
+test_that("lint uses linter names", {
+  expect_lint("a = 2", list(linter = "bla"), linters = list(bla = assignment_linter()), parse_settings = FALSE)
+})
+
+test_that("lint() results from file or text should be consistent", {
+  linters <- list(assignment_linter(), infix_spaces_linter())
+  file <- tempfile()
+  lines <- c(
+    "x<-1",
+    "x+1"
+  )
+  writeLines(lines, file)
+  text <- paste0(lines, collapse = "\n")
+  file <- normalizePath(file)
+
+  lint_from_file <- lint(file, linters = linters)
+  lint_from_lines <- lint(linters = linters, text = lines)
+  lint_from_text <- lint(linters = linters, text = text)
+
+  # Remove file before linting to ensure that lint works and do not
+  # assume that file exists when both filename and text are supplied.
+  unlink(file)
+  lint_from_text2 <- lint(file, linters = linters, text = text)
+
+  expect_equal(length(lint_from_file), 2)
+  expect_equal(length(lint_from_lines), 2)
+  expect_equal(length(lint_from_text), 2)
+  expect_equal(length(lint_from_text2), 2)
+
+  expect_equal(lint_from_file, lint_from_text2)
+
+  for (i in seq_along(lint_from_lines)) {
+    lint_from_file[[i]]$filename <- ""
+    lint_from_lines[[i]]$filename <- ""
+    lint_from_text[[i]]$filename <- ""
+  }
+
+  expect_equal(lint_from_file, lint_from_lines)
+  expect_equal(lint_from_file, lint_from_text)
+})
+
+test_that("exclusions work with custom linter names", {
+  expect_lint(
+    "a = 2 # nolint: bla.",
+    NULL,
+    linters = list(bla = assignment_linter()),
+    parse_settings = FALSE
+  )
+})
+
+test_that("compatibility warnings work", {
+  expect_warning(
+    expect_lint(
+      "a == NA",
+      "Use is.na",
+      linters = equals_na_linter
+    ),
+    regexp = "Passing linters as variables",
+    fixed = TRUE
+  )
+
+  expect_warning(
+    expect_lint(
+      "a == NA",
+      "Use is.na",
+      linters = unclass(equals_na_linter())
+    ),
+    regexp = "The use of linters of class 'function'",
+    fixed = TRUE
+  )
+
+  # Trigger compatibility in auto_names()
+  expect_warning(
+    expect_lint(
+      "a == NA",
+      "Use is.na",
+      linters = list(unclass(equals_na_linter()))
+    ),
+    fixed = "The use of linters of class 'function'"
+  )
+
+  expect_error(
+    expect_warning(
+      lint("a <- 1\n", linters = function(two, arguments) NULL),
+      regexp = "The use of linters of class 'function'",
+      fixed = TRUE
+    ),
+    regexp = "`fun` must be a function taking exactly one argument",
+    fixed = TRUE
+  )
+
+  expect_error(
+    lint("a <- 1\n", linters = "equals_na_linter"),
+    regexp = rex("Expected '", anything, "' to be of class 'linter'")
   )
 })
